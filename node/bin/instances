@@ -20,7 +20,9 @@ set +a
 SOCKET=/run/haproxy/admin.sock
 
 haproxy_say() {
-    [ -S "$SOCKET" ] && echo "$1" | socat stdio "$SOCKET" >/dev/null || true
+    if [ -S "$SOCKET" ]; then
+        echo "$1" | socat stdio "$SOCKET" >/dev/null || true
+    fi
 }
 
 drain() {
@@ -32,7 +34,7 @@ drain() {
     for _ in $(seq 1 60); do
         busy="$(echo "show stat" | socat stdio "$SOCKET" 2>/dev/null \
                 | awk -F, -v s="app$1" '$1 == "app" && $2 == s {print $5}')"
-        [ -z "$busy" ] || [ "$busy" = 0 ] && return 0
+        if [ -z "$busy" ] || [ "$busy" = 0 ]; then return 0; fi
         sleep 1
     done
 }
