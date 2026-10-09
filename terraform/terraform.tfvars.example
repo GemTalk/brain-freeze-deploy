@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is not committed.
+
+project_id  = "my-project"
+domain      = "brainfreeze.example.com"
+alert_email = "oncall@example.com"
+deploy_repo = "https://github.com/GemTalk/brain-freeze-deploy.git"
+
+# Everything below has a default; these are the ones most worth a look.
+
+# region      = "us-central1"
+# zones       = ["us-central1-a", "us-central1-b"]
+# active_zone = "us-central1-a"
+
+# machine_type  = "e2-standard-4"
+# app_instances = 3            # 1 to 6 on the free license
+
+# dns_managed_zone = "example-com"   # a Cloud DNS zone here that holds the domain
+# app_ref          = "main"          # brain-freeze ref the first boot checks out
+# deploy_ref       = "main"          # brain-freeze-deploy ref the first boot checks out

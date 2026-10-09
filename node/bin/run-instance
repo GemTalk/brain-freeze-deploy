@@ -1,0 +1,17 @@
+#!/bin/bash
+# Serve one instance of the app: brainfreeze-app@N.service runs this as
+# `run-instance N`, on port BASE_PORT + N - 1 (5051, 5052, ...), on loopback.
+# HAProxy is what the world reaches; each instance is one database session
+# answering one request at a time (brain-freeze's web/app.py, constraints
+# 1 and 2).
+
+set -euo pipefail
+set -a
+# shellcheck source=/dev/null
+. /etc/brainfreeze/node.env
+set +a
+
+N="$1"
+export BRAINFREEZE_PORT=$((BASE_PORT + N - 1))
+cd "$APP"
+exec "$ROOT/bin/gemdb" web/app.py

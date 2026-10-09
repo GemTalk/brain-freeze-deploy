@@ -1,0 +1,42 @@
+#!/bin/bash
+# Back the database up to Cloud Storage: brainfreeze-backup.service, daily.
+#
+#   1. a full backup, compressed, uploaded to gs://BUCKET/backups/;
+#   2. every transaction log older than the one being written when the
+#      backup began, uploaded to gs://BUCKET/tranlogs/ and then removed here.
+#
+# A backup plus the logs written after it restores the database to its last
+# commit. The logs are kept in the bucket rather than on the disk, which
+# they would otherwise fill: GemDB keeps every log (STN_TRAN_FULL_LOGGING).
+# The disk's own snapshots (terraform/storage.tf) are the other,
+# quicker way back; this one survives losing the disk and its snapshots.
+
+set -euo pipefail
+set -a
+# shellcheck source=/dev/null
+. /etc/brainfreeze/node.env
+set +a
+export PATH="$ROOT/bin:$PATH:/snap/bin"
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+staging="$HOME/backups"
+mkdir -p "$staging"
+backup="$staging/brainfreeze-$stamp.dbf.gz"
+logs="$ROOT/db/data"
+
+# The log being written now. Every log before it is complete, and is not
+# needed to recover from a crash: the stone switches logs at a checkpoint,
+# and the backup begins with one.
+tranlogs() { (cd "$logs" && printf '%s\n' tranlog*.dbf | sort -V); }
+current="$(tranlogs | tail -1)"
+
+BACKUP_PATH="$backup" gemdb "$DEPLOY/node/backup.py"
+gcloud storage cp --quiet "$backup" "gs://$BUCKET/backups/"
+rm -f "$backup"
+
+tranlogs | while read -r log; do
+    [ "$log" = "$current" ] && break
+    gcloud storage cp --quiet "$logs/$log" "gs://$BUCKET/tranlogs/$log"
+    rm -f "$logs/$log"
+done
+echo "Backed up to gs://$BUCKET/backups/brainfreeze-$stamp.dbf.gz"

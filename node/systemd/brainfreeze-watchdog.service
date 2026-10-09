@@ -1,0 +1,6 @@
+[Unit]
+Description=Start the Brain Freeze database again if it has stopped
+
+[Service]
+Type=oneshot
+ExecStart=/var/lib/brainfreeze/deploy/node/bin/watchdog

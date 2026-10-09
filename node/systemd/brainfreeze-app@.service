@@ -1,0 +1,28 @@
+# One instance of the web app: brainfreeze-app@1, @2, ... on ports 5051, 5052,
+# ... Each is one database session answering one request at a time; HAProxy
+# spreads requests across them (bin/haproxy-config).
+#
+# Not enabled: bin/instances starts them, one at a time, at boot and on a
+# release. `systemctl start` returns once the instance answers /healthz
+# (ExecStartPost), which is what makes one-at-a-time possible.
+
+[Unit]
+Description=Ice Cream Brain Freeze Insurance, instance %i
+After=gemdb.service
+Requires=gemdb.service
+
+[Service]
+User=brainfreeze
+ExecStart=/var/lib/brainfreeze/deploy/node/bin/run-instance %i
+ExecStartPost=/var/lib/brainfreeze/deploy/node/bin/wait-healthy %i
+# Always: an instance that exits -- a crash, or `serve` refusing to start
+# because another instance was compiling the app at the same moment -- is
+# started again.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+TimeoutStartSec=300
+# The whole group: `gemdb` is a shell script that runs topaz, and stopping
+# only the script would leave topaz serving the port.
+KillMode=control-group
+TimeoutStopSec=30

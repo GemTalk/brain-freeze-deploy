@@ -1,0 +1,46 @@
+#!/bin/bash
+# Start, stop or ask after the database: the stone and its NetLDI.
+#
+#   gemdb-ctl start | stop | running
+#
+# Run as the service account, with /etc/brainfreeze/gemdb.env in the
+# environment (gemdb.service supplies both). The commands and arguments are
+# GemDB Code's own (its startstone/startnetldi/stopstone calls), so the
+# database runs here as it would under the editor.
+
+set -euo pipefail
+if [ -z "${GEMSTONE:-}" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    . /etc/brainfreeze/gemdb.env
+    set +a
+fi
+
+STONE=gemdb
+NETLDI=gemdbldi
+LOG="$GEMSTONE_GLOBAL_DIR/db/log"
+
+up() { gslist -cl 2>/dev/null | grep -Eq "\\b$1\\s+$2\\b"; }
+
+case "${1:-}" in
+    start)
+        up Stone "$STONE" || startstone -l "$LOG/$STONE.log" "$STONE"
+        up Netldi "$NETLDI" || startnetldi -a "$(id -un)" -g -l "$LOG/$NETLDI.log" "$NETLDI"
+        ;;
+    stop)
+        stopnetldi "$NETLDI" || true
+        # -i: stop even with sessions logged in. The app instances are
+        # stopped first (they are bound to gemdb.service), so any left are
+        # a stray shell, and a stop that waits on one never finishes.
+        # DataCurator and its stock password are GemDB Code's; nothing
+        # outside this machine can reach the stone (README.md).
+        # `|| true`: a stone that already died is what bin/watchdog is
+        # restarting from, and that stop has nothing to stop.
+        stopstone -i -t 120 "$STONE" DataCurator swordfish || true
+        ;;
+    running)
+        up Stone "$STONE" && up Netldi "$NETLDI"
+        ;;
+    *)
+        echo "usage: $0 start|stop|running" >&2; exit 2 ;;
+esac

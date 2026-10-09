@@ -1,0 +1,16 @@
+# Terraform's working files, state, and this deployment's own settings. The
+# provider lock file, terraform/.terraform.lock.hcl, is committed.
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Agent worktrees and local tooling state.
+.claude/

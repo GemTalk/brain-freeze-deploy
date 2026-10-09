@@ -1,0 +1,23 @@
+#!/bin/bash
+# Collect the database's garbage: brainfreeze-gc.service, daily.
+#
+# What GemDB Code schedules under the editor, which a server does not run:
+# a mark-for-collection, then the space comes back in the background. Without
+# it, every abandoned quote and replaced object stays in the extent until it
+# reaches the free license's 10 GB. Also clears statistics files older than
+# two weeks, as GemDB Code would.
+
+set -euo pipefail
+set -a
+# shellcheck source=/dev/null
+. /etc/brainfreeze/node.env
+set +a
+
+# Judged by the collector's report, not the exit status: on Grail 84821c1,
+# garbage_collect() prints its report and the run then ends with status 1,
+# never returning to Python (measured). The report is the collection having
+# happened.
+said="$("$ROOT/bin/gemdb" -c 'import gemdb.admin; print(gemdb.admin.garbage_collect())' 2>&1)" || true
+echo "$said"
+grep -q "markForCollection found" <<<"$said"
+find "$ROOT/db/stat" -type f -mtime +14 -delete 2>/dev/null || true

@@ -1,0 +1,21 @@
+# The database: the stone and its NetLDI, from the data disk.
+#
+# Not enabled: provision.sh starts it on every boot, because the data disk is
+# attached by the startup script, after systemd has started what it starts.
+# bin/watchdog starts it again if the stone stops.
+
+[Unit]
+Description=GemDB database (stone and NetLDI)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/brainfreeze
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=brainfreeze
+EnvironmentFile=/etc/brainfreeze/gemdb.env
+ExecStart=/var/lib/brainfreeze/deploy/node/bin/gemdb-ctl start
+ExecStop=/var/lib/brainfreeze/deploy/node/bin/gemdb-ctl stop
+TimeoutStartSec=600
+TimeoutStopSec=300

@@ -1,0 +1,9 @@
+[Unit]
+Description=Collect the Brain Freeze database's garbage daily
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

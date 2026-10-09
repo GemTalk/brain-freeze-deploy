@@ -1,0 +1,20 @@
+#!/bin/bash
+# Is the database up? brainfreeze-watchdog.service, every minute.
+#
+# gemdb.service starts the stone and returns: systemd does not watch the
+# stone itself. If the stone or its NetLDI has gone, start the database again
+# and then the instances, one at a time. The instances restart themselves
+# (Restart=always); this is the one thing they cannot do for themselves.
+
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# Nothing to watch until provision.sh has finished on this boot: before
+# then the disk may not be attached, and the database is starting anyway.
+[ -f /run/brainfreeze/provisioned ] || exit 0
+
+if ! sudo -u brainfreeze "$HERE/gemdb-ctl" running; then
+    echo "the database is not running: starting it, then the app"
+    systemctl restart gemdb.service
+    "$HERE/instances" start
+fi

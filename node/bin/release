@@ -1,0 +1,35 @@
+#!/bin/bash
+# Serve another release: deploy.sh runs this on the VM, as root.
+#
+#   release <app ref> <deploy ref>
+#
+# Moves both checkouts on the data disk -- the app (brain-freeze) and this
+# repository (brain-freeze-deploy) -- to their refs, then provisions again
+# with --restart: the app's code is loaded into the database, HAProxy and the
+# units are rewritten, and the instances are restarted one at a time, each
+# drained first. The site stays up throughout: N-1 instances answer while
+# one restarts.
+
+set -euo pipefail
+APP_REF="${1:?usage: release <app ref> <deploy ref>}"
+DEPLOY_REF="${2:?usage: release <app ref> <deploy ref>}"
+MOUNT=/var/lib/brainfreeze
+
+as_service() { sudo -u brainfreeze -H "$@"; }
+
+# Move the checkout in DIR to REF, freshly fetched. A branch name is taken
+# from origin first: the clone made a local branch of the default branch
+# when it was cloned, and checking that out would serve the commit it held
+# then, not the one just pushed. Tags and commit ids fall through to REF.
+move() {   # move DIR REF
+    as_service git -C "$1" fetch --quiet --tags --force origin
+    as_service git -C "$1" checkout --quiet --detach "origin/$2" 2>/dev/null \
+        || as_service git -C "$1" checkout --quiet --detach "$2"
+    echo "$(basename "$1"): $(as_service git -C "$1" log -1 --format='%h %s')"
+}
+
+move "$MOUNT/app" "$APP_REF"
+move "$MOUNT/deploy" "$DEPLOY_REF"
+
+# The provision.sh just checked out, not the one that was running this.
+exec "$MOUNT/deploy/node/provision.sh" --restart

@@ -1,0 +1,63 @@
+#!/bin/bash
+# Bring the app instances to the count in /etc/brainfreeze/node.env.
+#
+#   instances start     start any that are not running, one at a time
+#   instances restart   restart every one, one at a time, each drained first
+#
+# Either way, instances above the count are stopped. One at a time because
+# each `systemctl start` returns only once that instance is healthy
+# (bin/wait-healthy): two starting together conflict compiling the app.
+# Drained first, through HAProxy's admin socket, so a restart drops no
+# request: HAProxy stops sending new ones to that instance, the one in
+# flight finishes, and the others answer meanwhile.
+
+set -euo pipefail
+set -a
+# shellcheck source=/dev/null
+. /etc/brainfreeze/node.env
+set +a
+
+SOCKET=/run/haproxy/admin.sock
+
+haproxy_say() {
+    [ -S "$SOCKET" ] && echo "$1" | socat stdio "$SOCKET" >/dev/null || true
+}
+
+drain() {
+    haproxy_say "set server app/app$1 state drain"
+    # Wait for the request it is answering, if any. `show stat` is CSV,
+    # one line per proxy and server: pxname,svname,qcur,qmax,scur,... and
+    # scur is the sessions open now. Up to a minute: the slowest page takes
+    # seconds.
+    for _ in $(seq 1 60); do
+        busy="$(echo "show stat" | socat stdio "$SOCKET" 2>/dev/null \
+                | awk -F, -v s="app$1" '$1 == "app" && $2 == s {print $5}')"
+        [ -z "$busy" ] || [ "$busy" = 0 ] && return 0
+        sleep 1
+    done
+}
+
+for n in $(seq 1 "$INSTANCES"); do
+    unit="brainfreeze-app@$n.service"
+    case "${1:-start}" in
+        start)
+            systemctl is-active --quiet "$unit" || systemctl start "$unit" ;;
+        restart)
+            if systemctl is-active --quiet "$unit"; then
+                drain "$n"
+                systemctl restart "$unit"
+            else
+                systemctl start "$unit"
+            fi
+            haproxy_say "set server app/app$n state ready" ;;
+        *)
+            echo "usage: $0 start|restart" >&2; exit 2 ;;
+    esac
+done
+
+# Any beyond the count, from before the count was lowered.
+systemctl list-units --plain --no-legend 'brainfreeze-app@*.service' \
+    | awk '{print $1}' | while read -r unit; do
+        n="${unit#brainfreeze-app@}"; n="${n%.service}"
+        if [ "$n" -gt "$INSTANCES" ]; then systemctl stop "$unit"; fi
+    done

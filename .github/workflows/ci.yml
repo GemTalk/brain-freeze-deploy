@@ -1,0 +1,77 @@
+name: CI
+
+# Everything that can be checked without a Google Cloud project: the shell
+# scripts, the Terraform, the HAProxy configuration the VM will write, and the
+# tests that keep this repository's pieces in step with each other and with
+# the app. Nothing here deploys.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      app_ref:
+        description: "The brain-freeze ref to check against"
+        default: main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.16.4"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Pinned to commits, as brain-freeze's CI pins them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The app, for the tests that read its side of the contract.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: GemTalk/brain-freeze
+          ref: ${{ inputs.app_ref || 'main' }}
+          path: .app/brain-freeze
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Shell scripts
+        run: shellcheck -x deploy.sh node/startup.sh node/provision.sh $(find node/bin -type f ! -name '*.py')
+
+      - name: Install Terraform ${{ env.TERRAFORM_VERSION }}
+        run: |
+          cd "$RUNNER_TEMP"
+          base="https://releases.hashicorp.com/terraform/$TERRAFORM_VERSION"
+          zip="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          curl -sSfLO "$base/$zip"
+          curl -sSfL "$base/terraform_${TERRAFORM_VERSION}_SHA256SUMS" | grep " $zip\$" | sha256sum -c -
+          unzip -q "$zip" -d "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Terraform
+        working-directory: terraform
+        run: |
+          terraform fmt -check -diff
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: The HAProxy configuration the VM writes
+        run: |
+          sudo apt-get install -y -q haproxy
+          node/bin/haproxy-config 3 > "$RUNNER_TEMP/haproxy.cfg"
+          haproxy -c -f "$RUNNER_TEMP/haproxy.cfg"
+
+      - name: Tests
+        env:
+          BRAIN_FREEZE_APP: ${{ github.workspace }}/.app/brain-freeze
+        run: python -m unittest discover -v

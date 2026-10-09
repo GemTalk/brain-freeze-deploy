@@ -1,0 +1,23 @@
+#!/bin/bash
+# Return once instance N answers /healthz with 200; fail after four minutes.
+#
+# The ExecStartPost of brainfreeze-app@N.service, so `systemctl start` of an
+# instance returns only once it is serving -- which is what lets bin/instances
+# start them one after another rather than all at once (brain-freeze's
+# web/app.py `serve`: two instances compiling the app together conflict).
+
+set -euo pipefail
+set -a
+# shellcheck source=/dev/null
+. /etc/brainfreeze/node.env
+set +a
+
+port=$((BASE_PORT + $1 - 1))
+for _ in $(seq 1 240); do
+    if curl -sf -o /dev/null --max-time 5 "http://127.0.0.1:$port/healthz"; then
+        exit 0
+    fi
+    sleep 1
+done
+echo "instance $1 did not answer /healthz on port $port within four minutes" >&2
+exit 1

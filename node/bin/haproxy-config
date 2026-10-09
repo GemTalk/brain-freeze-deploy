@@ -1,0 +1,95 @@
+#!/bin/bash
+# Write HAProxy's configuration for N app instances to stdout.
+#
+#   haproxy-config 3 > /etc/haproxy/haproxy.cfg
+#
+# Three ways in, one way to the app:
+#
+#   :8080       What the Google load balancer sends traffic to: every visitor.
+#               /metrics is refused here. /lb-health is answered by HAProxy
+#               itself: 200 while any instance is up, which is what the load
+#               balancer and the instance group's autohealing ask.
+#   127.0.0.1:8081
+#               The same app, for this machine only: the monitoring agent
+#               reads /metrics here.
+#   127.0.0.1:8405
+#               HAProxy's own numbers, for the monitoring agent: requests,
+#               status codes, response times, queue depth, which instances
+#               are up.
+#
+# WHY HAPROXY RATHER THAN NGINX
+#
+# An instance answers one request at a time and holds no queue of its own
+# (brain-freeze's web/app.py, constraints 1 and 2). `maxconn 1` gives each
+# exactly one, and HAProxy queues the rest and hands each to whichever
+# instance frees first.
+# Open-source nginx cannot queue at the upstream: with every instance busy
+# it answers 502.
+
+set -euo pipefail
+N="${1:?usage: haproxy-config INSTANCES}"
+BASE_PORT="${BASE_PORT:-5051}"
+
+cat <<CFG
+# Written by node/bin/haproxy-config for $N instances. Do not edit:
+# provision.sh writes it again on every boot and every release.
+
+global
+    log /dev/log local0
+    maxconn 4096
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    mode http
+    log global
+    option httplog
+    option dontlognull
+    timeout connect 2s
+    timeout client 65s
+    # The slowest pages take seconds under Grail. The Google load balancer
+    # gives up at 60s (timeout_sec in terraform/lb.tf).
+    timeout server 55s
+    # How long a request may wait for a free instance before it is a 503.
+    timeout queue 30s
+    timeout http-request 10s
+    timeout check 10s
+
+frontend public
+    bind :8080
+    monitor-uri /lb-health
+    monitor fail if { nbsrv(app) lt 1 }
+    http-request deny deny_status 404 if { path /metrics }
+    default_backend app
+
+frontend internal
+    bind 127.0.0.1:8081
+    default_backend app
+
+frontend stats
+    bind 127.0.0.1:8405
+    http-request use-service prometheus-exporter if { path /metrics }
+    stats enable
+    stats uri /stats
+    option dontlog-normal
+
+backend app
+    # Least busy first; with maxconn 1 that is whichever instance is free.
+    balance leastconn
+    # A request that never reached an instance -- it was restarting -- goes
+    # to another. One that reached it is never sent twice: a POST may have
+    # committed.
+    retries 2
+    option redispatch
+    option httpchk GET /healthz
+    http-check expect status 200
+    # A check waits behind the request an instance is answering, so a busy
+    # instance is not a dead one: three misses, 5s apart, each allowed 10s.
+    default-server maxconn 1 check inter 5s fall 3 rise 2
+CFG
+
+for n in $(seq 1 "$N"); do
+    echo "    server app$n 127.0.0.1:$((BASE_PORT + n - 1))"
+done

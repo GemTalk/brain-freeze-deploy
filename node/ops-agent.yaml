@@ -1,0 +1,54 @@
+# Google Cloud Ops Agent: what this VM sends to Cloud Monitoring and Cloud
+# Logging. Installed by provision.sh to /etc/google-cloud-ops-agent/.
+#
+# Metrics
+#   hostmetrics   CPU, memory, disk, network: the agent's defaults.
+#   haproxy       HAProxy's own exporter (bin/haproxy-config, :8405): requests
+#                 by status, response times, queue depth, instances up.
+#   brainfreeze   The app's /metrics, through HAProxy's loopback port (:8081):
+#                 policies, quotes, claims, database size and sessions.
+#                 Once a minute: each read holds one instance for its length.
+# Both Prometheus jobs land in Cloud Monitoring as
+# prometheus.googleapis.com/<metric>/<kind> (terraform/monitoring.tf).
+#
+# Logs
+#   The systemd journal: every app instance's access log and conflicts,
+#   HAProxy, the database's services, backups. The default syslog pipeline
+#   is replaced so each line arrives once.
+
+metrics:
+  receivers:
+    prometheus:
+      type: prometheus
+      config:
+        scrape_configs:
+          - job_name: haproxy
+            scrape_interval: 30s
+            metrics_path: /metrics
+            # Frontends, backends and servers; not HAProxy's process
+            # internals, which are many series and say little here.
+            params:
+              scope: [frontend, backend, server]
+            static_configs:
+              - targets: ["127.0.0.1:8405"]
+          - job_name: brainfreeze
+            scrape_interval: 60s
+            scrape_timeout: 30s
+            metrics_path: /metrics
+            static_configs:
+              - targets: ["127.0.0.1:8081"]
+  service:
+    pipelines:
+      prometheus:
+        receivers: [prometheus]
+
+logging:
+  receivers:
+    journal:
+      type: systemd_journald
+  service:
+    pipelines:
+      default_pipeline:
+        receivers: []
+      journal:
+        receivers: [journal]
