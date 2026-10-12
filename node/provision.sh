@@ -7,7 +7,7 @@
 # Run as root, by startup.sh on every boot and by bin/release on a deploy.
 # Safe to run again: each step checks before it acts.
 #
-#   1. the packages the machine needs, and the monitoring agent;
+#   1. the packages the machine needs, resvg, and the monitoring agent;
 #   2. GemDB, set up the way a reader sets it up -- GemDB Code's own setup,
 #      headless, as brain-freeze's CI runs it (its ci/setup-gemdb/run.js) --
 #      but only on a disk that has never had it;
@@ -42,6 +42,7 @@ GEMDB_VERSION="$(metadata bf-gemdb-version)"
 NODE_VERSION="$(metadata bf-node-version)"
 BUCKET="$(metadata bf-bucket)"
 PAGE_CACHE_MB="$(metadata bf-page-cache-mb || true)"
+DOMAIN="$(metadata bf-domain || true)"
 
 case "$(uname -m)" in
     x86_64) GEMDB_PLATFORM=linux-x64; NODE_PLATFORM=linux-x64 ;;
@@ -57,6 +58,26 @@ if ! command -v haproxy >/dev/null || ! command -v socat >/dev/null; then
     apt-get update -q
     # lsof: serving.py's preflight names whatever holds a port with it.
     apt-get install -y -q haproxy socat lsof unzip curl git
+fi
+# resvg draws the app's ID card PNG, the picture a shared card link shows as
+# its preview (brain-freeze's web/cards.py). Ubuntu 24.04 doesn't package
+# it, so this is the project's own release binary, pinned by version and
+# checksum, in /usr/local/bin, which is on the app's PATH. There is no Linux
+# arm64 release: on arm64 the card's PNG answers 503 and shared links show no
+# picture, until resvg is built and installed by hand (cargo install resvg).
+RESVG_VERSION=0.48.1
+RESVG_SHA256=fa8c26495a187e592c501db15bf9e8a9fdc051d4b2b336b39703d5b59f912b9d
+if [ "$(/usr/local/bin/resvg --version 2>/dev/null)" != "$RESVG_VERSION" ]; then
+    if [ "$(uname -m)" = x86_64 ]; then
+        curl -sSfLo /tmp/resvg.tar.gz \
+            "https://github.com/linebender/resvg/releases/download/v$RESVG_VERSION/resvg-linux-x86_64.tar.gz"
+        echo "$RESVG_SHA256  /tmp/resvg.tar.gz" | sha256sum -c --quiet
+        tar -xzf /tmp/resvg.tar.gz -C /usr/local/bin resvg
+        chmod 755 /usr/local/bin/resvg
+        rm -f /tmp/resvg.tar.gz
+    else
+        say "no resvg release for $(uname -m): ID cards will have no link preview"
+    fi
 fi
 if [ ! -d /etc/google-cloud-ops-agent ]; then
     curl -sSfo /tmp/add-ops-agent.sh \
@@ -134,7 +155,23 @@ BUCKET=$BUCKET
 ROOT=$ROOT
 APP=$APP
 DEPLOY=$DEPLOY
+BRAINFREEZE_CARD_CACHE=/var/cache/brainfreeze/cards
 ENV
+# The site's address, for the absolute URLs in the card page's link-preview
+# tags: behind the load balancer and HAProxy the app can't see it. A VM from
+# a template older than bf-domain goes without, and the tags name the host
+# the request came to, over http.
+if [ -n "$DOMAIN" ]; then
+    echo "BRAINFREEZE_PUBLIC_URL=https://$DOMAIN" >> "$CONF/node.env"
+fi
+
+# The app's ID card PNGs (web/cards.py): drawn once each and shared by every
+# instance. On the boot disk, because any of them can be drawn again; files
+# nobody has asked for in 30 days are removed by systemd-tmpfiles' daily
+# clean, so made-up names can't fill the disk.
+printf 'd /var/cache/brainfreeze/cards 0750 %s %s 30d\n' "$SERVICE_USER" "$SERVICE_USER" \
+    > /etc/tmpfiles.d/brainfreeze-cards.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/brainfreeze-cards.conf
 
 # The stone's page cache, if the deployment sets one. GemDB Code writes
 # 100 MB; the free license allows more, and a server has the memory.

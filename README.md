@@ -164,6 +164,8 @@ change to any of them in brain-freeze needs a matching change here.
 | `tools/load.py`, `tools/seed.py`                        | `node/provision.sh`                         |
 | `ci/setup-gemdb/run.js`, GemDB Code's setup without an editor | `node/provision.sh`, first boot only  |
 | `serve()` exits 1 if another instance compiled the app at the same moment | systemd restarts it              |
+| `GET /policies/<id>/card.png`, drawn by `resvg` on the PATH (`web/cards.py`) | shared links' previews; `node/provision.sh` installs resvg |
+| `BRAINFREEZE_CARD_CACHE` and `BRAINFREEZE_PUBLIC_URL`, read by `web/cards.py` | `node/provision.sh` writes both to `node.env` |
 
 The app needs the `/healthz`, `/metrics` and conflict handling that came with
 this deployment. A brain-freeze ref without `web/routes_ops.py` will never
@@ -366,6 +368,10 @@ curl -s https://<domain>/healthz                    # prints: ok
 curl -s -o /dev/null -w '%{http_code}\n' https://<domain>/          # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://<domain>/           # 301 (to https)
 curl -s -o /dev/null -w '%{http_code}\n' https://<domain>/metrics   # 404 (private)
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' \
+    https://<domain>/policies/BF-100539/card.png    # 200 image/png
+curl -s https://<domain>/policies/BF-100539/card | grep og:image
+                       # content="https://<domain>/policies/BF-100539/card.png"
 gcloud compute backend-services get-health brainfreeze-app --global \
     --format='value(status.healthStatus[].healthState)'             # HEALTHY
 gcloud storage ls $(terraform -chdir=terraform output -raw backups_bucket)/backups/
@@ -378,6 +384,7 @@ On the VM (`gcloud compute ssh $VM --zone $ZONE --tunnel-through-iap`):
 systemctl is-active gemdb 'brainfreeze-app@1' 'brainfreeze-app@2' 'brainfreeze-app@3' haproxy
                                                     # active, five times
 curl -s localhost:8081/metrics | grep ^brainfreeze_policies     # brainfreeze_policies 900
+/usr/local/bin/resvg --version                      # 0.48.1 (on arm64: not installed)
 systemctl list-timers 'brainfreeze-*' --no-pager    # backup, gc, watchdog listed
 ```
 
