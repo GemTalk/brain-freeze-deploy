@@ -7,6 +7,8 @@
 # - Prometheus metrics, from the Ops Agent on the VM
 #   (node/ops-agent.yaml): HAProxy's (haproxy_*) and the app's
 #   /metrics (brainfreeze_*, gemdb_*). Queried here in PromQL.
+#   Cloud Monitoring refuses an alert on a metric it has never received,
+#   and these arrive only once the VM has booted: see prometheus_alerts.
 # - Two counts made from the VM's logs: commit conflicts
 #   (brain-freeze's web/conflicts.py) and finished backups (node/bin/backup).
 
@@ -14,6 +16,10 @@ locals {
   journal = "logName=\"projects/${var.project_id}/logs/journal\""
 
   notify = var.alert_email == "" ? [] : [google_monitoring_notification_channel.email[0].id]
+
+  # A log metric could be on any kind of resource, so PromQL must be told
+  # which: the journal comes from the VM.
+  on_vm = "{monitored_resource=\"gce_instance\"}"
 
   # A PromQL chart, for the dashboard.
   promql = {
@@ -28,7 +34,7 @@ locals {
     db_free     = "min(gemdb_repository_bytes{part=\"free\"})"
     db_total    = "max(gemdb_repository_bytes{part=\"total\"})"
     sessions    = "max by (kind) (gemdb_sessions)"
-    conflicts   = "sum(rate(logging_googleapis_com:user_${var.name}_commit_conflicts[5m]))"
+    conflicts   = "sum(rate(logging_googleapis_com:user_${var.name}_commit_conflicts${local.on_vm}[5m]))"
   }
 }
 
@@ -127,6 +133,7 @@ resource "google_monitoring_alert_policy" "down" {
 }
 
 resource "google_monitoring_alert_policy" "instances" {
+  count                 = var.prometheus_alerts ? 1 : 0
   display_name          = "Brain Freeze: fewer app instances than configured"
   combiner              = "OR"
   notification_channels = local.notify
@@ -146,6 +153,7 @@ resource "google_monitoring_alert_policy" "instances" {
 }
 
 resource "google_monitoring_alert_policy" "errors" {
+  count                 = var.prometheus_alerts ? 1 : 0
   display_name          = "Brain Freeze: more than 5% of responses are 5xx"
   combiner              = "OR"
   notification_channels = local.notify
@@ -165,6 +173,7 @@ resource "google_monitoring_alert_policy" "errors" {
 }
 
 resource "google_monitoring_alert_policy" "queue" {
+  count                 = var.prometheus_alerts ? 1 : 0
   display_name          = "Brain Freeze: requests are queueing"
   combiner              = "OR"
   notification_channels = local.notify
@@ -184,6 +193,7 @@ resource "google_monitoring_alert_policy" "queue" {
 }
 
 resource "google_monitoring_alert_policy" "database_full" {
+  count                 = var.prometheus_alerts ? 1 : 0
   display_name          = "Brain Freeze: the database is filling up"
   combiner              = "OR"
   notification_channels = local.notify
@@ -214,7 +224,11 @@ resource "google_monitoring_alert_policy" "backups" {
       # nothing matches, so a stopped backup leaves no series to compare.
       # The first boot backs up at once (provision.sh), so this does not
       # fire for a day after a new deployment.
-      query               = "absent_over_time(logging_googleapis_com:user_${var.name}_backups[26h])"
+      #
+      # 25h is the longest a PromQL alert may look back over a log metric.
+      # With the hour's duration below, it fires 26 hours after the last
+      # backup: the daily one (03:30 UTC) is 2 hours late.
+      query               = "absent_over_time(logging_googleapis_com:user_${var.name}_backups${local.on_vm}[25h])"
       duration            = "3600s"
       evaluation_interval = "600s"
     }

@@ -15,5 +15,6 @@ deploy_repo = "https://github.com/GemTalk/brain-freeze-deploy.git"
 # app_instances = 3            # 1 to 6 on the free license
 
 # dns_managed_zone = "example-com"   # a Cloud DNS zone here that holds the domain
+# extra_domains    = ["www.brainfreeze.example.com"]   # other domains serving the same site
 # app_ref          = "main"          # brain-freeze ref the first boot checks out
 # deploy_ref       = "main"          # brain-freeze-deploy ref the first boot checks out

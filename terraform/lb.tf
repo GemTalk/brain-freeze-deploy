@@ -29,6 +29,22 @@ resource "google_compute_managed_ssl_certificate" "site" {
   }
 }
 
+# One certificate each, not one for all: a managed certificate is issued only
+# once every domain on it resolves here, so one domain's DNS would hold up
+# the others'.
+resource "google_compute_managed_ssl_certificate" "extra" {
+  for_each = toset(var.extra_domains)
+  name     = "${var.name}-${substr(sha1(each.key), 0, 8)}"
+
+  managed {
+    domains = [each.key]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 resource "google_dns_record_set" "site" {
   count        = var.dns_managed_zone == "" ? 0 : 1
   managed_zone = var.dns_managed_zone
@@ -159,7 +175,7 @@ resource "google_compute_ssl_policy" "modern" {
 resource "google_compute_target_https_proxy" "site" {
   name             = "${var.name}-https"
   url_map          = google_compute_url_map.https.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.site.id]
+  ssl_certificates = concat([google_compute_managed_ssl_certificate.site.id], [for c in google_compute_managed_ssl_certificate.extra : c.id])
   ssl_policy       = google_compute_ssl_policy.modern.id
 }
 

@@ -291,9 +291,13 @@ gcloud config get-value project
 
    ```sh
    terraform -chdir=terraform init
-   terraform -chdir=terraform plan -out=tfplan
+   terraform -chdir=terraform plan -var prometheus_alerts=false -out=tfplan
    terraform -chdir=terraform apply tfplan
    ```
+
+   `prometheus_alerts=false` leaves out the four alerts on HAProxy's and the
+   app's metrics: Cloud Monitoring refuses an alert on a metric it has never
+   received, and those arrive only once the VM has booted. Step 6 makes them.
 
    A first plan creates about 50 resources and destroys none. If the plan
    destroys anything, stop and ask (R0.7). The apply takes about 5 minutes.
@@ -307,7 +311,8 @@ gcloud config get-value project
 3. **Point DNS at it.** With `dns_managed_zone` set, Terraform already made
    the record. Otherwise create an A record for `domain` with the value of
    `terraform -chdir=terraform output -raw static_ip`. Check it with
-   `dig +short <domain>`, which must print that IP.
+   `dig +short <domain>`, which must print that IP. Do the same for each of
+   `extra_domains`, whatever `dns_managed_zone` is set to.
 
 4. **Wait for the first boot.** Expect about 15 minutes. Poll this until
    success, giving up after 30 minutes:
@@ -331,13 +336,26 @@ gcloud config get-value project
    go to R8, and read the whole log with `journalctl -u google-startup-scripts`.
 
 5. **Wait for the certificate.** Google issues it only after DNS resolves to
-   the static IP, which takes 15 to 60 minutes. Poll this until it prints
-   `ACTIVE`, giving up after 90 minutes:
+   the static IP, which takes 15 to 60 minutes. Each of `extra_domains` has
+   its own certificate, issued once its own DNS resolves. Poll this until
+   every line prints `ACTIVE`, giving up after 90 minutes:
 
    ```sh
    gcloud compute ssl-certificates list --global \
        --filter="name~^brainfreeze-" --format='value(name,managed.status)'
    ```
+
+6. **Make the remaining alerts.** Once step 4 has succeeded, wait 2 minutes
+   for the first metrics to arrive, then plan and apply without the variable:
+
+   ```sh
+   terraform -chdir=terraform plan -out=tfplan
+   terraform -chdir=terraform apply tfplan
+   ```
+
+   The plan creates 4 alert policies and changes nothing else. If the apply
+   says `The following PromQL metric(s) are invalid`, the metrics have not
+   arrived yet: wait 2 minutes and apply again.
 
 ## R3. Verify
 
@@ -502,8 +520,10 @@ database's own logs are in `/var/lib/brainfreeze/GemDB/db/log/`.
 | Symptom                                                           | Likely cause → fix                                                                                                                                                                                                                                 |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `terraform apply`: API not enabled, or 403 just after enabling    | Enabling APIs takes time to take effect → wait 2 minutes, apply again.                                                                                                                                                                              |
+| `terraform apply`: `The following PromQL metric(s) are invalid`   | Cloud Monitoring has never received that metric: the VM hasn't finished its first boot, or the Ops Agent isn't sending → finish R2.4 and apply again. If it persists, `sudo systemctl status google-cloud-ops-agent` on the VM. On a first deploy, apply with `-var prometheus_alerts=false` (R2.2). |
 | `terraform apply`: custom role `brainfreeze_disk_takeover` already exists | A deleted custom role keeps its ID for 7 days → set `name` to something else, or undelete it: `gcloud iam roles undelete brainfreeze_disk_takeover --project $PROJECT`.                                                                       |
 | Boot log stops at `cloning`                                       | A repository is private or a ref doesn't exist → make it public, or fix `app_ref`/`deploy_ref`. A VM that has already booted keeps its clone, so fix it by hand: on the VM, `sudo rm -rf /var/lib/brainfreeze/{app,deploy}` and reboot. |
+| Boot log: `could not attach <disk> yet: ...`, repeating          | The rest of the line is gcloud's reason. `does not have access to service account` or `Required 'compute...' permission` → the VM's grants in `terraform/compute.tf` are missing or still propagating: apply, and wait 2 minutes. |
 | Boot log: `... is RUNNING. Waiting.`, repeating                   | Another VM holds the data disk. Expected for a few minutes during a replacement. If it lasts more than 10 minutes, find the holder with `gcloud compute disks describe <data_disk output> --region $REGION --format='value(users)'` and ask (R6).                        |
 | First boot fails during `setting GemDB Code ... up`               | GemDB Code's setup has not been run on Linux before → read its `[GemDB]` lines in the boot log. A rerun repeats only the parts not yet done: `sudo /var/lib/brainfreeze/deploy/node/provision.sh`.                                                   |
 | `tools/load.py failed three times`                                | The app ref doesn't load into the database. To see the error, run `sudo -iu brainfreeze`, then `cd app && ../GemDB/bin/gemdb tools/load.py`.                                                                                                                       |

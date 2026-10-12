@@ -93,7 +93,8 @@ if [ ! -e "$DEVICE" ]; then
                     "To take it anyway, set force_attach = true and apply."
             fi
         else
-            say "could not attach $DISK yet: $(tail -1 /tmp/attach.err)"
+            # gcloud's error spans lines and ends with a blank one.
+            say "could not attach $DISK yet: $(tr -s '\n' ' ' </tmp/attach.err)"
         fi
         sleep 30
     done
@@ -135,12 +136,21 @@ fi
 # Only ever cloned here. After that each checkout moves only when someone
 # releases (deploy.sh), so a replacement VM serves exactly the release that
 # was serving before, and booting needs nothing from GitHub.
+#
+# A branch is checked out as origin/<branch>, as node/bin/release does: a
+# bare branch name other than the default one has no local branch, and git
+# refuses to guess one with --detach. Tags and commit ids fall through.
+# Cloned beside DIR and moved into place only once at REF, so a clone that
+# fails partway is not taken for a finished one on the next boot.
 clone() {   # clone REPO REF DIR
     [ -d "$3/.git" ] && return 0
     command -v git >/dev/null || { apt-get update -q && apt-get install -y -q git; }
     say "cloning $1 at $2 into $3"
-    sudo -u "$SERVICE_USER" git clone --quiet "$1" "$3"
-    sudo -u "$SERVICE_USER" git -C "$3" checkout --quiet --detach "$2"
+    rm -rf "$3.new"
+    sudo -u "$SERVICE_USER" git clone --quiet "$1" "$3.new"
+    sudo -u "$SERVICE_USER" git -C "$3.new" checkout --quiet --detach "origin/$2" 2>/dev/null \
+        || sudo -u "$SERVICE_USER" git -C "$3.new" checkout --quiet --detach "$2"
+    mv "$3.new" "$3"
 }
 clone "$APP_REPO" "$APP_REF" "$APP"
 clone "$DEPLOY_REPO" "$DEPLOY_REF" "$DEPLOY"

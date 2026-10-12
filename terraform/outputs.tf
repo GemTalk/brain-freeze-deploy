@@ -1,5 +1,5 @@
 output "static_ip" {
-  description = "Point the domain's A record here, unless dns_managed_zone does it for you. It never changes."
+  description = "Point the domain's A record here, unless dns_managed_zone does it for you, and each of extra_domains'. It never changes."
   value       = google_compute_global_address.site.address
 }
 

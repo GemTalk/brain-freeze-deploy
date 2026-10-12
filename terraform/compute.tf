@@ -45,6 +45,15 @@ resource "google_project_iam_member" "disk_takeover" {
   member  = "serviceAccount:${google_service_account.vm.email}"
 }
 
+# Changing an instance -- attaching a disk to it -- acts as the account the
+# instance runs as, so the VM must be allowed to act as itself. Granted on
+# its own account only, not the project's.
+resource "google_service_account_iam_member" "vm_acts_as_itself" {
+  service_account_id = google_service_account.vm.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.vm.email}"
+}
+
 resource "google_storage_bucket_iam_member" "backups" {
   bucket = google_storage_bucket.backups.name
   role   = "roles/storage.objectAdmin"
@@ -136,6 +145,15 @@ resource "google_compute_instance_group_manager" "vm" {
   base_instance_name = var.name
   target_size        = each.key == var.active_zone ? 1 : 0
   wait_for_instances = false
+
+  # A VM booted before its permissions exist waits for them (startup.sh
+  # retries), but need not.
+  depends_on = [
+    google_project_iam_member.vm,
+    google_project_iam_member.disk_takeover,
+    google_service_account_iam_member.vm_acts_as_itself,
+    google_storage_bucket_iam_member.backups,
+  ]
 
   version {
     instance_template = google_compute_instance_template.vm.id

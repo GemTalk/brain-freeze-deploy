@@ -53,6 +53,12 @@ variable "dns_managed_zone" {
   default     = ""
 }
 
+variable "extra_domains" {
+  description = "Other domains that serve the same site, each with its own certificate. Point each one's A record at the static_ip output yourself; dns_managed_zone covers only domain."
+  type        = list(string)
+  default     = []
+}
+
 # -- how big -------------------------------------------------------------------------
 
 variable "machine_type" {
@@ -182,4 +188,10 @@ variable "alert_email" {
   description = "Where alerts go. Empty makes the alert policies with no one to tell."
   type        = string
   default     = ""
+}
+
+variable "prometheus_alerts" {
+  description = "Make the alerts on HAProxy's and the app's metrics. Cloud Monitoring refuses an alert on a metric it has never received, so a first deploy sets this false, and the apply after the first boot makes them (README.md, R2)."
+  type        = bool
+  default     = true
 }
