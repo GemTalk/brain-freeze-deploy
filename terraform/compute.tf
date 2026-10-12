@@ -100,6 +100,7 @@ resource "google_compute_instance_template" "vm" {
     bf-gemdb-version = var.gemdb_code_version
     bf-node-version  = var.node_version
     bf-bucket        = google_storage_bucket.backups.name
+    bf-domain        = var.domain
     bf-page-cache-mb = var.page_cache_mb == null ? "" : tostring(var.page_cache_mb)
   }
 
