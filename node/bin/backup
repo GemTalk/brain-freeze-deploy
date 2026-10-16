@@ -30,7 +30,13 @@ logs="$ROOT/db/data"
 tranlogs() { (cd "$logs" && printf '%s\n' tranlog*.dbf | sort -V); }
 current="$(tranlogs | tail -1)"
 
-BACKUP_PATH="$backup" gemdb "$DEPLOY/node/backup.py"
+# As DataCurator: a backup needs FileControl, which the `gemdb` account
+# lacks (bin/as-datacurator). A fresh session has nothing uncommitted, so
+# the backup holds everything committed up to now.
+"$DEPLOY/node/bin/as-datacurator" "SystemRepository fullBackupGzCompressedTo: '$backup'"
+# topaz's exit status says nothing; a backup that failed or stopped short is
+# missing or truncated, and gzip says which.
+gzip -t "$backup"
 gcloud storage cp --quiet "$backup" "gs://$BUCKET/backups/"
 rm -f "$backup"
 

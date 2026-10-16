@@ -1,0 +1,37 @@
+#!/bin/bash
+# Run one Smalltalk expression as DataCurator and print what topaz says.
+#
+#   as-datacurator 'SystemRepository markForCollection'
+#
+# For the jobs that need privileges the `gemdb` account lacks. Since GemDB
+# Code 1.6.0 the `gemdb` command logs in as `gemdb`, which has
+# CodeModification and CreateOnetimePassword only, so gemdb.admin.backup()
+# (FileControl) and garbage_collect() (GarbageCollection) raise SecurityError
+# 2151. GemDB Code does its own maintenance this way: linked topaz, a session
+# of its own, DataCurator (GemDB Code's src/mcp.ts, runTopaz/topazLogin).
+#
+# topaz's exit status does not say whether the expression failed (GemDB
+# Code's src/cli.ts), so callers judge by the output or by what was made.
+# The script goes in on stdin, so the password is never an argument.
+
+set -euo pipefail
+if [ -z "${GEMSTONE:-}" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    . /etc/brainfreeze/gemdb.env
+    set +a
+fi
+
+# DataCurator and its stock password are GemDB Code's; nothing outside this
+# machine can reach the stone (README.md).
+"$GEMSTONE/bin/topaz" -lq <<TOPAZ
+set gemstone !tcp@localhost#server!gemdb
+set username DataCurator
+set password swordfish
+login
+iferr 1 stk
+run
+$1
+%
+logout
+TOPAZ
