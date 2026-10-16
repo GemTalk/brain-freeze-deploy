@@ -67,7 +67,7 @@ disk at boot and carries on from the last commit.
 | `terraform/`             | Everything in Google Cloud: network, NAT, firewall, the data disk, its snapshot schedule, the backups bucket, the VM template, one instance group per zone, the load balancer and certificate, Cloud Armor, the dashboard, the uptime check, the alerts. |
 | `node/startup.sh`        | The VM's boot script, run on every boot. Attaches the data disk, taking it from a dead VM if it must. Mounts it, clones both repositories onto it the first time, then runs `provision.sh`.                                       |
 | `node/provision.sh`      | Makes the VM serve. On a blank disk it installs GemDB with GemDB Code 1.6.0's own setup. It writes settings, systemd units, the HAProxy config and the monitoring agent's config. It starts the database, loads the app's code, seeds the book if there is none, and starts the instances one at a time. Safe to run again. |
-| `node/bin/`              | What the units and `provision.sh` run: `gemdb-ctl` (stone and NetLDI), `run-instance`, `wait-healthy`, `instances` (start or rolling restart), `haproxy-config`, `backup`, `collect-garbage`, `watchdog`, `release`.             |
+| `node/bin/`              | What the units and `provision.sh` run: `gemdb-ctl` (stone and NetLDI), `run-instance`, `wait-healthy`, `instances` (start or rolling restart), `haproxy-config`, `backup`, `collect-garbage`, `as-datacurator` (what those two log in as), `watchdog`, `release`. |
 | `node/systemd/`          | `gemdb.service`, `brainfreeze-app@.service`, and the backup (daily), garbage-collection (daily) and watchdog (every minute) timers.                                                                                             |
 | `node/ops-agent.yaml`    | What the Ops Agent sends to Cloud Monitoring and Cloud Logging.                                                                                                                                                               |
 | `deploy.sh`              | Releases new versions from your machine, over SSH through IAP, with no downtime.                                                                                                                                               |
@@ -197,7 +197,7 @@ pass a health check.
 | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | Three instances on one database under constant concurrent writes: no duplicate IDs, no 500s. 2 of 450 writes got a 503 when the first run started; none did on the second. | macOS, GemStone 4.0.0.a4, older Grail (84821c1) |
 | The HAProxy config as generated: queueing 30 concurrent requests over 3 instances, draining, `/metrics` refused publicly, the exporter's metric names | macOS, HAProxy 3.4                   |
-| `gemdb.admin.backup` writing a backup, and that backup restored into a stock extent with every policy, claim and counter intact | macOS, the same engine               |
+| `gemdb.admin.backup` writing a backup, and that backup restored into a stock extent with every policy, claim and counter intact. `bin/backup` no longer uses it: as GemDB Code 1.6.0 logs in, it raises SecurityError 2151 (`bin/as-datacurator`) | macOS, the same engine, before GemDB Code 1.6.0 |
 | `terraform validate`, shellcheck, this repository's tests                                                                     | macOS                                |
 
 **Never run:**
@@ -206,6 +206,7 @@ pass a health check.
 - the systemd units and the Ops Agent config;
 - the log filters and PromQL names in `terraform/monitoring.tf`;
 - replaying transaction logs after a restore;
+- `bin/backup` and `bin/collect-garbage` as DataCurator through topaz (`bin/as-datacurator`);
 - Grail `beef473`, the version GemDB Code 1.6.0 ships.
 
 Expect the first real deploy to find problems. [R8](#r8-troubleshooting)
