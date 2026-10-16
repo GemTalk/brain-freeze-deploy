@@ -12,6 +12,8 @@
 #
 # topaz's exit status does not say whether the expression failed (GemDB
 # Code's src/cli.ts), so callers judge by the output or by what was made.
+# It does fail the caller's `set -e` without the closing `exit`: topaz that
+# runs out of input exits 1 even after a clean logout (measured on the VM).
 # The script goes in on stdin, so the password is never an argument.
 
 set -euo pipefail
@@ -34,4 +36,5 @@ run
 $1
 %
 logout
+exit
 TOPAZ
